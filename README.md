@@ -124,3 +124,8 @@ PREPROCESS=crop   bash scripts/train_color_div2k.sh
 - 额外引入 Sliced Wasserstein 距离项（`--lambda-swd`）。
 
 这比单一 MMD 在高维特征上更稳定。
+
+
+## 附录：方程 ↔ 代码类 ↔ 训练日志指标 一页图
+
+见：`docs/equation_code_metrics_diagram.md`
