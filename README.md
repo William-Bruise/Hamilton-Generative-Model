@@ -1,71 +1,59 @@
 # Hamiltonian Generative Model（理论力学视角）
 
-本项目把“高斯先验 -> 图像分布”建模为受控哈密顿动力系统：
+本项目包含两条路线：
 
-\[
-\dot q = \nabla_p H_\theta(q,p,t),\qquad
-\dot p = -\nabla_q H_\theta(q,p,t) + u_\phi(q,p,t).
-\]
+1. **Latent 路线（通用图像/高光谱）**：`src/train_universal_hamiltonian.py`
+2. **HySpecNet-11k 3D 路线（重点）**：`src/train_hyspecnet3d_hamiltonian.py`
 
----
+你提出的关键需求：
+- 训练集是 `128x128x224`；
+- 生成时可改成 `256x256x191` / `512x512x31`（任意空间与光谱分辨率）；
 
-## 1. 高分辨率数据集支持（已内置自动下载）
-
-- **彩色图像（>=256）**：`DIV2K`（官方 HR 训练集）
-- **高光谱图像（>=256）**：`ICVL-31`（多场景高光谱 `.mat`）
-- 兼容旧选项：`cifar10`、`pavia_u`、`generic`
+已通过 **3D 全卷积哈密顿网络**实现：网络在 `(C,H,W)` 三维网格上做动力学演化，输入噪声尺寸就是输出尺寸。
 
 ---
 
-## 2. 训练脚本（bash）
-
-### 2.1 训练高分辨率彩色图像
+## 1. HySpecNet-11k 3D 训练
 
 ```bash
-bash scripts/train_color_div2k.sh
+bash scripts/train_hyperspectral_hyspecnet11k_3d.sh
 ```
 
-### 2.2 训练高分辨率高光谱图像
+该脚本会调用：
+- `--auto-download --num-shards 1`（从 HuggingFace 下载 HySpecNet-11k 的分片）
+- `--train-h 128 --train-w 128 --train-c 224`
 
-```bash
-bash scripts/train_hyperspectral_icvl.sh
-```
+> 你可把 `--num-shards` 调大到 10 以覆盖更多数据。
 
 ---
 
-## 3. 无条件生成脚本（bash）
+## 2. 任意分辨率无条件生成（只需改噪声尺寸）
 
-### 3.1 无条件生成彩色图像（PNG）
-
-```bash
-bash scripts/generate_color_unconditional.sh
-```
-
-输出目录：`outputs/color_uncond/*.png`
-
-### 3.2 无条件生成高光谱图像（NPY）
+### 2.1 生成 `256x256x191`
 
 ```bash
-bash scripts/generate_hyperspectral_unconditional.sh
+bash scripts/generate_hyper_anyshape_256x256x191.sh
 ```
 
-输出目录：`outputs/hyper_uncond/*.npy`（shape: `C,H,W`）
+### 2.2 生成 `512x512x31`
+
+```bash
+bash scripts/generate_hyper_anyshape_512x512x31.sh
+```
+
+输出文件均为：`*.npy`，shape 为 `[C,H,W]`。
 
 ---
 
-## 4. 也可直接用 Python 命令
+## 3. 核心文件
 
-```bash
-python src/train_universal_hamiltonian.py --dataset-type div2k --data-root ./data --resize 256x256
-python src/train_universal_hamiltonian.py --dataset-type icvl_31 --data-root ./data --hyper-patch 64 --hyper-stride 32
-
-python src/generate_unconditional.py --ckpt checkpoints/div2k_hamiltonian.pt --out-dir outputs/color_uncond --mode rgb --num-samples 16 --height 256 --width-out 256
-python src/generate_unconditional.py --ckpt checkpoints/icvl_hamiltonian.pt --out-dir outputs/hyper_uncond --mode hyper --num-samples 16 --height 64 --width-out 64
-```
+- `src/hyper3d_hamiltonian.py`：3D 哈密顿生成器（任意 C/H/W）
+- `src/train_hyspecnet3d_hamiltonian.py`：HySpecNet-11k 训练入口
+- `src/generate_hyper_anyshape.py`：任意谱-空分辨率无条件生成
 
 ---
 
-## 5. 依赖
+## 4. 依赖
 
 ```bash
 pip install torch torchvision pillow scipy
