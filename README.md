@@ -8,27 +8,17 @@
 
 ---
 
-## 1. 可行性分析
+## 1. 可行性与原理
 
-## 1.1 为什么“哈密顿方法 + 生成模型”可行
+1. **概率分布运输本质上是动力系统问题**：生成模型可看作将简单先验映射到复杂数据分布。
+2. **哈密顿流具备结构保持性**：有利于长时间稳定积分。
+3. **潜空间训练降低图像高维难度**：先编码，再在 latent 中做哈密顿流。
+4. **控制项提升表达力**：纯哈密顿流体积保持，加入 $u_\phi$ 后可逼近更一般密度变换。
 
-1. **概率分布运输本质上是动力系统问题**  
-   生成模型可以理解为把简单先验分布通过可逆/近可逆流映射到复杂数据分布。哈密顿系统天然提供了连续时间流。
-
-2. **哈密顿流具备结构保持性**  
-   纯哈密顿系统满足辛结构保持（体积保持），长时间积分更稳定，适合构造深层连续流。
-
-3. **图像高维性可通过潜空间缓解**  
-   直接在像素空间做哈密顿流代价高；将图像编码到潜变量后，在潜空间做哈密顿演化更可行。
-
-4. **可加入控制项突破“纯保体积”限制**  
-   纯哈密顿流保辛体积，表达能力受限；引入可学习控制/耗散项后，可覆盖更广泛的密度变换，同时保留力学可解释性。
-
-## 1.2 关键挑战
-
-- 高维图像分布的训练稳定性（需配合编码器、正则、梯度裁剪）
-- 终端分布匹配（MMD、对抗损失、切片Wasserstein等）
-- 数值积分误差与计算成本（选择辛积分器、步数调度）
+关键挑战：
+- 高维数据训练稳定性；
+- 终端分布匹配（MMD/Wasserstein/对抗）；
+- 数值积分误差控制。
 
 ---
 
@@ -43,19 +33,11 @@
 \dot p = -\nabla_q H_\theta(q,p,t) + u_\phi(q,p,t).
 \]
 
-- 当 $u_\phi\equiv 0$ 时是标准哈密顿系统；
-- $u_\phi$ 是可学习“控制力/耗散力”，用于提高密度拟合能力。
-
-### 2.2 连续分布演化
-
-概率密度 $\rho_t(x)$ 满足连续性方程：
+### 2.2 概率密度演化
 
 \[
 \partial_t \rho_t + \nabla\cdot(\rho_t f_{\theta,\phi}) = 0,
-\]
-
-其中
-\[
+\quad
 f_{\theta,\phi}(x,t)=
 \begin{bmatrix}
 \nabla_p H_\theta \\
@@ -63,59 +45,65 @@ f_{\theta,\phi}(x,t)=
 \end{bmatrix}.
 \]
 
-若 $u_\phi=0$，则 $\nabla\cdot f_{\theta,0}=0$（李乌维尔定理），流体积保持。
+若 $u_\phi=0$，则 $\nabla\cdot f_{\theta,0}=0$（李乌维尔定理，体积保持）。
 
-### 2.3 训练目标（终端分布匹配 + 正则）
+### 2.3 训练目标
 
-我们采样
 \[
-x_0=(q_0,p_0)\sim\mathcal N(0,I),\quad x_T=\Phi_{0\to T}^{\theta,\phi}(x_0),
+x_0\sim\mathcal N(0,I),\quad x_T=\Phi_{0\to T}^{\theta,\phi}(x_0),
 \]
-并最小化
 \[
-\mathcal L(\theta,\phi)=D\big((q_T)_\#\mathcal N(0,I),\ p_{\text{data}}\big)
+\mathcal L(\theta,\phi)=D\big((q_T)_\#\mathcal N(0,I), p_{\text{data}}\big)
 +\lambda_H\mathcal R_H+\lambda_u\mathcal R_u.
 \]
-
-- $D$ 可以取 MMD/Wasserstein/对抗损失；
-- $\mathcal R_H$ 约束哈密顿量平滑与能量规模；
-- $\mathcal R_u$ 约束控制项强度（避免数值发散）。
-
-### 2.4 图像建模
-
-给定编码器 $E$ 与解码器 $G$：
-
-\[
-z=E(y),\quad z\sim p_z,\quad q_T\approx z,\quad \hat y=G(q_T).
-\]
-
-即在潜空间拟合 $p_z$，生成时先采样高斯再积分得到 $q_T$，最后解码为图像。
 
 ---
 
 ## 3. 代码结构
 
-- `src/hamiltonian_gen_model.py`：核心动力学、辛积分器、模型定义。
-- `src/train_mnist_hamiltonian.py`：MNIST 上的最小训练原型（含编码器/解码器、MMD 训练）。
-
-> 说明：该实现强调“理论-代码对齐”的研究原型性质，便于你继续扩展到更强的图像模型（如 VAE latent、DiT latent、Rectified Flow 路径监督等）。
+- `src/hamiltonian_gen_model.py`：核心动力学、辛积分器、MMD。
+- `src/data_utils.py`：
+  - 数据集下载（URL）
+  - zip/tar 自动解压
+  - 通用图像/光谱数组读取（支持 jpg/png/tif + npy/npz）
+- `src/train_universal_hamiltonian.py`：
+  - 支持任意空间分辨率（通过全卷积 + Adaptive Pool + 输出插值）
+  - 支持任意光谱通道数（按数据自动推断 `in_channels`）
 
 ---
 
-## 4. 快速开始
+## 4. 训练（支持任意空间和光谱分辨率）
+
+### 4.1 本地数据集
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install torch torchvision
-python src/train_mnist_hamiltonian.py --epochs 1 --batch-size 64
+python src/train_universal_hamiltonian.py \
+  --data-root ./your_dataset_root \
+  --epochs 20 \
+  --batch-size 16
+```
+
+### 4.2 自动下载数据集（URL）
+
+```bash
+python src/train_universal_hamiltonian.py \
+  --dataset-url "https://your-domain.com/dataset.zip" \
+  --data-root ./data \
+  --epochs 20
+```
+
+### 4.3 固定输入大小（可选）
+
+```bash
+python src/train_universal_hamiltonian.py \
+  --data-root ./your_dataset_root \
+  --resize 256x256
 ```
 
 ---
 
-## 5. 可扩展方向
+## 5. 关于“任意空间/光谱分辨率”的边界
 
-1. 把 MMD 换成 Sinkhorn-Wasserstein 或对抗判别器。
-2. 将 `u_\phi` 改成显式受控最优控制项，加入控制能量积分惩罚。
-3. 使用更高阶辛积分器（Leapfrog/Stormer-Verlet 变体）。
-4. 在 latent diffusion 的 VAE latent 空间上做哈密顿流，兼顾质量与可解释性。
+- **空间分辨率**：训练脚本可直接处理不同 H×W（同一 batch 内建议统一尺寸，或用 `--resize`）。
+- **光谱分辨率**：可处理任意通道数 C（如 RGB=3，多光谱=8，高光谱=31+），但**一次训练中应保持通道数一致**。
+- 对超高分辨率/超高光谱数据，建议加 patch 训练与混合精度以降低显存压力。
