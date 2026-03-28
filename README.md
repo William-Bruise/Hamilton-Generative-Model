@@ -71,3 +71,26 @@ pip install torch torchvision pillow scipy
 
 如果你看到类似 `mmd=0.0625` 长时间不变，这通常是 RBF 带宽不合适导致核退化。
 当前代码默认 `--mmd-sigma 0`，会自动启用 median-bandwidth heuristic（自适应带宽）并使用无偏估计，避免批大小相关的常数下限。
+
+
+## 7. Linux/screen 下完整保存训练日志与报错日志
+
+训练脚本已默认把 stdout/stderr 分开保存到 `logs/`：
+- `*.train.log`：训练过程日志（epoch/loss）
+- `*.error.log`：报错堆栈（traceback）
+
+例如：
+```bash
+bash scripts/train_hyperspectral_hyspecnet11k_3d.sh
+```
+
+实时看日志：
+```bash
+tail -f logs/*_hyspecnet3d.train.log
+tail -f logs/*_hyspecnet3d.error.log
+```
+
+如果你想换日志目录：
+```bash
+LOG_DIR=/path/to/your_logs bash scripts/train_hyperspectral_hyspecnet11k_3d.sh
+```
