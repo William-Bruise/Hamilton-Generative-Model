@@ -94,3 +94,12 @@ tail -f logs/*_hyspecnet3d.error.log
 ```bash
 LOG_DIR=/path/to/your_logs bash scripts/train_hyperspectral_hyspecnet11k_3d.sh
 ```
+
+
+## 8. 常见报错说明
+
+1. **下载 DIV2K 时卡住/中断（KeyboardInterrupt）**  
+   现在下载逻辑已改为分块流式写盘（不会一次性把大文件读入内存）。如果中断，重新运行会继续从头安全下载。
+
+2. **生成时报错 `does not require grad`**  
+   哈密顿动力学在推理时也需要对状态求梯度。现在代码已在动力学模块内部强制启用状态梯度，训练和无条件生成都可正常运行。

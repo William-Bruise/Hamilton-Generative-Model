@@ -37,11 +37,22 @@ HYPERSPECTRAL_DATASETS = {
 }
 
 
-def download_file(url: str, out_path: Path) -> Path:
+def download_file(url: str, out_path: Path, chunk_size: int = 1024 * 1024) -> Path:
+    """Stream download to disk to avoid loading large archives fully into memory."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    with urlopen(url) as resp:
-        data = resp.read()
-    out_path.write_bytes(data)
+    tmp_path = out_path.with_suffix(out_path.suffix + ".part")
+
+    from urllib.request import Request
+
+    req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urlopen(req, timeout=120) as resp, open(tmp_path, "wb") as f:
+        while True:
+            chunk = resp.read(chunk_size)
+            if not chunk:
+                break
+            f.write(chunk)
+
+    tmp_path.replace(out_path)
     return out_path
 
 

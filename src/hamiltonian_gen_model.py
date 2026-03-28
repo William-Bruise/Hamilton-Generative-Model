@@ -112,16 +112,18 @@ class HamiltonianDynamics(nn.Module):
         self.u_net = u_net
 
     def forward(self, q: torch.Tensor, p: torch.Tensor, t: torch.Tensor) -> DynamicsOutput:
-        q_req = q.requires_grad_(True)
-        p_req = p.requires_grad_(True)
+        # Hamiltonian vector field needs gradients wrt state even at inference time.
+        with torch.enable_grad():
+            q_req = q.detach().requires_grad_(True)
+            p_req = p.detach().requires_grad_(True)
 
-        h = self.h_net(q_req, p_req, t).sum()
-        grad_q, grad_p = torch.autograd.grad(h, [q_req, p_req], create_graph=True)
+            h = self.h_net(q_req, p_req, t).sum()
+            grad_q, grad_p = torch.autograd.grad(h, [q_req, p_req], create_graph=self.training)
 
-        dq = grad_p
-        dp = -grad_q
-        if self.u_net is not None:
-            dp = dp + self.u_net(q_req, p_req, t)
+            dq = grad_p
+            dp = -grad_q
+            if self.u_net is not None:
+                dp = dp + self.u_net(q_req, p_req, t)
 
         return DynamicsOutput(dq=dq, dp=dp)
 
