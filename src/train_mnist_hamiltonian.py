@@ -58,7 +58,7 @@ def train(args: argparse.Namespace) -> None:
 
     encoder = Encoder(latent_dim=args.latent_dim).to(device)
     decoder = Decoder(latent_dim=args.latent_dim).to(device)
-    model = HamiltonianGenerativeModel(dim=args.latent_dim, hidden=args.hidden, steps=args.steps).to(device)
+    model = HamiltonianGenerativeModel(dim=args.latent_dim, width=args.width, depth=args.depth, steps=args.steps).to(device)
 
     opt_ae = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()), lr=args.lr_ae)
     opt_flow = optim.Adam(model.parameters(), lr=args.lr_flow)
@@ -133,7 +133,8 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--latent-dim", type=int, default=32)
-    parser.add_argument("--hidden", type=int, default=256)
+    parser.add_argument("--width", type=int, default=512)
+    parser.add_argument("--depth", type=int, default=6)
     parser.add_argument("--steps", type=int, default=32)
     parser.add_argument("--lr-ae", type=float, default=1e-3)
     parser.add_argument("--lr-flow", type=float, default=2e-4)

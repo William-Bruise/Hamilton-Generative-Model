@@ -3,56 +3,100 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Tuple
 
+import math
 import torch
 import torch.nn as nn
 
 
-class MLP(nn.Module):
-    def __init__(self, in_dim: int, out_dim: int, hidden: int = 256, depth: int = 3):
+class SinusoidalTimeEmbedding(nn.Module):
+    def __init__(self, dim: int = 128):
         super().__init__()
-        layers = []
-        d = in_dim
-        for _ in range(depth - 1):
-            layers += [nn.Linear(d, hidden), nn.SiLU()]
-            d = hidden
-        layers += [nn.Linear(d, out_dim)]
-        self.net = nn.Sequential(*layers)
+        self.dim = dim
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+    def forward(self, t: torch.Tensor) -> torch.Tensor:
+        if t.ndim == 0:
+            t = t[None]
+        if t.ndim == 2:
+            t = t.squeeze(-1)
+        half = self.dim // 2
+        freqs = torch.exp(-math.log(10000.0) * torch.arange(half, device=t.device, dtype=t.dtype) / max(half - 1, 1))
+        args = t[:, None] * freqs[None, :]
+        emb = torch.cat([torch.sin(args), torch.cos(args)], dim=-1)
+        if self.dim % 2 == 1:
+            emb = torch.cat([emb, torch.zeros_like(emb[:, :1])], dim=-1)
+        return emb
+
+
+class ResFiLMBlock(nn.Module):
+    def __init__(self, width: int, tdim: int):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(width)
+        self.lin1 = nn.Linear(width, width)
+        self.norm2 = nn.LayerNorm(width)
+        self.lin2 = nn.Linear(width, width)
+        self.act = nn.SiLU()
+        self.film = nn.Linear(tdim, 2 * width)
+
+    def forward(self, x: torch.Tensor, t_emb: torch.Tensor) -> torch.Tensor:
+        scale, shift = self.film(t_emb).chunk(2, dim=-1)
+        h = self.norm1(x)
+        h = h * (1 + scale) + shift
+        h = self.act(self.lin1(h))
+        h = self.act(self.lin2(self.norm2(h)))
+        return x + h
+
+
+class TimeConditionedResNet(nn.Module):
+    """A stronger alternative to plain MLP for latent dynamics modeling."""
+
+    def __init__(self, in_dim: int, out_dim: int, width: int = 512, depth: int = 6, tdim: int = 128):
+        super().__init__()
+        self.t_embed = nn.Sequential(
+            SinusoidalTimeEmbedding(tdim),
+            nn.Linear(tdim, tdim),
+            nn.SiLU(),
+            nn.Linear(tdim, tdim),
+        )
+        self.in_proj = nn.Linear(in_dim, width)
+        self.blocks = nn.ModuleList([ResFiLMBlock(width, tdim) for _ in range(depth)])
+        self.out_norm = nn.LayerNorm(width)
+        self.out_proj = nn.Linear(width, out_dim)
+
+    def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        if t.ndim == 0:
+            t = t.expand(x.size(0))
+        if t.ndim == 2:
+            t = t.squeeze(-1)
+        t_emb = self.t_embed(t)
+        h = self.in_proj(x)
+        for blk in self.blocks:
+            h = blk(h, t_emb)
+        return self.out_proj(self.out_norm(h))
 
 
 class HamiltonianNet(nn.Module):
-    """H_theta(q,p,t) -> scalar."""
+    """H_theta(q,p,t) -> scalar using time-conditioned residual network."""
 
-    def __init__(self, dim: int, hidden: int = 256):
+    def __init__(self, dim: int, width: int = 512, depth: int = 6):
         super().__init__()
         self.dim = dim
-        self.mlp = MLP(in_dim=2 * dim + 1, out_dim=1, hidden=hidden)
+        self.backbone = TimeConditionedResNet(in_dim=2 * dim, out_dim=1, width=width, depth=depth)
 
     def forward(self, q: torch.Tensor, p: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        if t.ndim == 0:
-            t = t.expand(q.size(0), 1)
-        elif t.ndim == 1:
-            t = t[:, None]
-        x = torch.cat([q, p, t], dim=-1)
-        return self.mlp(x).squeeze(-1)
+        x = torch.cat([q, p], dim=-1)
+        return self.backbone(x, t).squeeze(-1)
 
 
 class ControlNet(nn.Module):
     """u_phi(q,p,t) -> R^d, added on momentum equation."""
 
-    def __init__(self, dim: int, hidden: int = 256):
+    def __init__(self, dim: int, width: int = 512, depth: int = 6):
         super().__init__()
-        self.mlp = MLP(in_dim=2 * dim + 1, out_dim=dim, hidden=hidden)
+        self.backbone = TimeConditionedResNet(in_dim=2 * dim, out_dim=dim, width=width, depth=depth)
 
     def forward(self, q: torch.Tensor, p: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        if t.ndim == 0:
-            t = t.expand(q.size(0), 1)
-        elif t.ndim == 1:
-            t = t[:, None]
-        x = torch.cat([q, p, t], dim=-1)
-        return self.mlp(x)
+        x = torch.cat([q, p], dim=-1)
+        return self.backbone(x, t)
 
 
 @dataclass
@@ -83,8 +127,6 @@ class HamiltonianDynamics(nn.Module):
 
 
 class SymplecticEulerIntegrator(nn.Module):
-    """One-step symplectic Euler for controlled Hamiltonian dynamics."""
-
     def __init__(self, dynamics: HamiltonianDynamics, t0: float = 0.0, t1: float = 1.0, steps: int = 32):
         super().__init__()
         self.dynamics = dynamics
@@ -108,11 +150,11 @@ class SymplecticEulerIntegrator(nn.Module):
 
 
 class HamiltonianGenerativeModel(nn.Module):
-    def __init__(self, dim: int, hidden: int = 256, steps: int = 32):
+    def __init__(self, dim: int, width: int = 512, depth: int = 6, steps: int = 32):
         super().__init__()
         self.dim = dim
-        self.h_net = HamiltonianNet(dim=dim, hidden=hidden)
-        self.u_net = ControlNet(dim=dim, hidden=hidden)
+        self.h_net = HamiltonianNet(dim=dim, width=width, depth=depth)
+        self.u_net = ControlNet(dim=dim, width=width, depth=depth)
         self.dynamics = HamiltonianDynamics(self.h_net, self.u_net)
         self.integrator = SymplecticEulerIntegrator(self.dynamics, steps=steps)
 

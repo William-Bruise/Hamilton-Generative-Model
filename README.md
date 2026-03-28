@@ -1,109 +1,71 @@
 # Hamiltonian Generative Model（理论力学视角）
 
-这个仓库给出一个**从高斯分布到图像分布**的哈密顿生成模型原型：
-
-- 起点：$(q_0,p_0) \sim \mathcal N(0, I)$（可看作“相空间初态”）
-- 终点：$q_T \sim p_{\text{data}}$（图像或图像潜变量分布）
-- 演化：通过可学习哈密顿量 $H_\theta(q,p,t)$ 与控制项 $u_\phi(q,p,t)$，在相空间中完成动力学运输。
-
----
-
-## 1. 可行性与原理
-
-1. **概率分布运输本质上是动力系统问题**：生成模型可看作将简单先验映射到复杂数据分布。
-2. **哈密顿流具备结构保持性**：有利于长时间稳定积分。
-3. **潜空间训练降低图像高维难度**：先编码，再在 latent 中做哈密顿流。
-4. **控制项提升表达力**：纯哈密顿流体积保持，加入 $u_\phi$ 后可逼近更一般密度变换。
-
-关键挑战：
-- 高维数据训练稳定性；
-- 终端分布匹配（MMD/Wasserstein/对抗）；
-- 数值积分误差控制。
-
----
-
-## 2. 数学模型
-
-令状态 $x=(q,p)\in\mathbb R^{2d}$，其中 $q$ 是“位置”（用于生成样本），$p$ 是“动量”。
-
-### 2.1 动力学方程
+本项目把“高斯先验 -> 图像分布”建模为受控哈密顿动力系统：
 
 \[
-\dot q = \nabla_p H_\theta(q,p,t), \qquad
+\dot q = \nabla_p H_\theta(q,p,t),\qquad
 \dot p = -\nabla_q H_\theta(q,p,t) + u_\phi(q,p,t).
 \]
 
-### 2.2 概率密度演化
+---
 
-\[
-\partial_t \rho_t + \nabla\cdot(\rho_t f_{\theta,\phi}) = 0,
-\quad
-f_{\theta,\phi}(x,t)=
-\begin{bmatrix}
-\nabla_p H_\theta \\
--\nabla_q H_\theta + u_\phi
-\end{bmatrix}.
-\]
+## 1. 高分辨率数据集支持（已内置自动下载）
 
-若 $u_\phi=0$，则 $\nabla\cdot f_{\theta,0}=0$（李乌维尔定理，体积保持）。
+你提出 CIFAR10 分辨率太低、PaviaU 样本太少——当前代码已新增更合适的默认选项：
 
-### 2.3 训练目标
-
-\[
-x_0\sim\mathcal N(0,I),\quad x_T=\Phi_{0\to T}^{\theta,\phi}(x_0),
-\]
-\[
-\mathcal L(\theta,\phi)=D\big((q_T)_\#\mathcal N(0,I), p_{\text{data}}\big)
-+\lambda_H\mathcal R_H+\lambda_u\mathcal R_u.
-\]
+- **彩色图像（>=256）**：`DIV2K`（官方 HR 训练集，原始分辨率远高于 256）
+- **高光谱图像（>=256）**：`ICVL-31`（常见自然场景高光谱数据，典型空间分辨率 > 256）
+- 兼容旧选项：`cifar10`、`pavia_u`、`generic`
 
 ---
 
-## 3. 代码结构
+## 2. 训练命令
 
-- `src/hamiltonian_gen_model.py`：核心动力学、辛积分器、MMD。
-- `src/data_utils.py`：
-  - 数据集下载（URL）
-  - zip/tar 自动解压
-  - 通用图像/光谱数组读取（支持 jpg/png/tif + npy/npz）
-- `src/train_universal_hamiltonian.py`：
-  - 支持任意空间分辨率（通过全卷积 + Adaptive Pool + 输出插值）
-  - 支持任意光谱通道数（按数据自动推断 `in_channels`）
-
----
-
-## 4. 训练（支持任意空间和光谱分辨率）
-
-### 4.1 本地数据集
+### 2.1 训练高分辨率彩色图像（DIV2K）
 
 ```bash
 python src/train_universal_hamiltonian.py \
-  --data-root ./your_dataset_root \
-  --epochs 20 \
-  --batch-size 16
-```
-
-### 4.2 自动下载数据集（URL）
-
-```bash
-python src/train_universal_hamiltonian.py \
-  --dataset-url "https://your-domain.com/dataset.zip" \
+  --dataset-type div2k \
   --data-root ./data \
+  --resize 256x256 \
   --epochs 20
 ```
 
-### 4.3 固定输入大小（可选）
+### 2.2 训练高分辨率高光谱图像（ICVL-31）
 
 ```bash
 python src/train_universal_hamiltonian.py \
-  --data-root ./your_dataset_root \
-  --resize 256x256
+  --dataset-type icvl_31 \
+  --data-root ./data \
+  --hyper-patch 64 \
+  --hyper-stride 32 \
+  --icvl-max-files 120 \
+  --epochs 20
+```
+
+### 2.3 兼容原来的 PaviaU（单场景）
+
+```bash
+python src/train_universal_hamiltonian.py \
+  --dataset-type pavia_u \
+  --data-root ./data \
+  --hyper-patch 64 \
+  --hyper-stride 32
 ```
 
 ---
 
-## 5. 关于“任意空间/光谱分辨率”的边界
+## 3. 网络结构（已非简单 MLP）
 
-- **空间分辨率**：训练脚本可直接处理不同 H×W（同一 batch 内建议统一尺寸，或用 `--resize`）。
-- **光谱分辨率**：可处理任意通道数 C（如 RGB=3，多光谱=8，高光谱=31+），但**一次训练中应保持通道数一致**。
-- 对超高分辨率/超高光谱数据，建议加 patch 训练与混合精度以降低显存压力。
+`HamiltonianNet` 与 `ControlNet` 使用 **Time-Conditioned ResNet + FiLM**：
+- 正弦时间嵌入（Sinusoidal time embedding）
+- 残差块（LayerNorm + FiLM 调制）
+- 更适合复杂非线性动力学建模
+
+---
+
+## 4. 依赖
+
+```bash
+pip install torch torchvision pillow scipy
+```
