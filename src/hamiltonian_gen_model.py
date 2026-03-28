@@ -229,3 +229,15 @@ def compute_mmd_rbf(
     k_yy = k_yy / len(scales)
     k_xy = k_xy / len(scales)
     return k_xx + k_yy - 2 * k_xy
+
+
+def sliced_wasserstein_distance(x: torch.Tensor, y: torch.Tensor, num_projections: int = 128) -> torch.Tensor:
+    """Sliced Wasserstein distance for vector features."""
+    d = x.shape[1]
+    proj = torch.randn(d, num_projections, device=x.device, dtype=x.dtype)
+    proj = proj / (proj.norm(dim=0, keepdim=True) + 1e-8)
+    x_proj = x @ proj
+    y_proj = y @ proj
+    x_proj, _ = torch.sort(x_proj, dim=0)
+    y_proj, _ = torch.sort(y_proj, dim=0)
+    return (x_proj - y_proj).abs().mean()

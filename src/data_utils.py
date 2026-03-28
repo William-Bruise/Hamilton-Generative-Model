@@ -191,14 +191,36 @@ def _infer_cube_key(mat_dict: dict, preferred: str | None = None) -> str:
     raise RuntimeError("No 3D cube variable found in MAT file.")
 
 
+def random_crop_tensor(x: torch.Tensor, crop_h: int, crop_w: int) -> torch.Tensor:
+    """Random crop CHW tensor; if too small, upsample first."""
+    _, h, w = x.shape
+    if h < crop_h or w < crop_w:
+        x = torch.nn.functional.interpolate(
+            x[None, ...],
+            size=(max(h, crop_h), max(w, crop_w)),
+            mode="bilinear",
+            align_corners=False,
+        )[0]
+        _, h, w = x.shape
+    top = int(torch.randint(0, h - crop_h + 1, (1,)).item())
+    left = int(torch.randint(0, w - crop_w + 1, (1,)).item())
+    return x[:, top : top + crop_h, left : left + crop_w]
+
+
 class UniversalImageSpectralDataset(Dataset):
-    def __init__(self, root: str, resize_to: Optional[Tuple[int, int]] = None):
+    def __init__(
+        self,
+        root: str,
+        resize_to: Optional[Tuple[int, int]] = None,
+        crop_to: Optional[Tuple[int, int]] = None,
+    ):
         self.root = Path(root)
         self.files = _discover_files(self.root)
         if not self.files:
             raise RuntimeError(f"No supported files found in {self.root}")
 
         self.resize_to = resize_to
+        self.crop_to = crop_to
         self._channels = self._infer_channels(self.files[0])
 
     @staticmethod
@@ -260,6 +282,8 @@ class UniversalImageSpectralDataset(Dataset):
                 mode="bilinear",
                 align_corners=False,
             )[0]
+        if self.crop_to is not None:
+            x = random_crop_tensor(x, self.crop_to[0], self.crop_to[1])
 
         return x
 
@@ -283,13 +307,19 @@ class CIFAR10TensorDataset(Dataset):
 class FolderImageDataset(Dataset):
     """Image-only folder dataset (used for HR RGB benchmarks like DIV2K)."""
 
-    def __init__(self, root: str, resize_to: Optional[Tuple[int, int]] = None):
+    def __init__(
+        self,
+        root: str,
+        resize_to: Optional[Tuple[int, int]] = None,
+        crop_to: Optional[Tuple[int, int]] = None,
+    ):
         self.root = Path(root)
         self.files = sorted([p for p in self.root.rglob("*") if p.is_file() and p.suffix.lower() in IMAGE_EXTS])
         if not self.files:
             raise RuntimeError(f"No image files found in {self.root}")
         self.channels = 3
         self.resize_to = resize_to
+        self.crop_to = crop_to
 
     def __len__(self):
         return len(self.files)
@@ -301,6 +331,8 @@ class FolderImageDataset(Dataset):
         x = _to_chw_tensor(arr)
         if self.resize_to is not None:
             x = torch.nn.functional.interpolate(x[None], size=self.resize_to, mode="bilinear", align_corners=False)[0]
+        if self.crop_to is not None:
+            x = random_crop_tensor(x, self.crop_to[0], self.crop_to[1])
         return x
 
 

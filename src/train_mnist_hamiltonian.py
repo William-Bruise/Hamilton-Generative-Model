@@ -8,7 +8,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 
-from hamiltonian_gen_model import HamiltonianGenerativeModel, compute_mmd_rbf
+from hamiltonian_gen_model import HamiltonianGenerativeModel, compute_mmd_rbf, sliced_wasserstein_distance
 
 
 class Encoder(nn.Module):
@@ -92,6 +92,7 @@ def train(args: argparse.Namespace) -> None:
 
             sigma = None if args.mmd_sigma <= 0 else args.mmd_sigma
             mmd = compute_mmd_rbf(qT, z_target, sigma=sigma)
+            swd = sliced_wasserstein_distance(qT, z_target, num_projections=args.swd_proj)
 
             h_reg = 0.0
             for p in model.h_net.parameters():
@@ -101,7 +102,7 @@ def train(args: argparse.Namespace) -> None:
             for p in model.u_net.parameters():
                 u_reg = u_reg + (p * p).mean()
 
-            loss_flow = mmd + args.lambda_h * h_reg + args.lambda_u * u_reg
+            loss_flow = mmd + args.lambda_swd * swd + args.lambda_h * h_reg + args.lambda_u * u_reg
 
             opt_flow.zero_grad()
             loss_flow.backward()
@@ -140,6 +141,8 @@ if __name__ == "__main__":
     parser.add_argument("--lr-ae", type=float, default=1e-3)
     parser.add_argument("--lr-flow", type=float, default=2e-4)
     parser.add_argument("--mmd-sigma", type=float, default=0.0, help="<=0 uses median-bandwidth heuristic")
+    parser.add_argument("--lambda-swd", type=float, default=0.5)
+    parser.add_argument("--swd-proj", type=int, default=128)
     parser.add_argument("--lambda-h", type=float, default=1e-6)
     parser.add_argument("--lambda-u", type=float, default=1e-6)
     parser.add_argument("--out", type=str, default="hamiltonian_mnist.pt")

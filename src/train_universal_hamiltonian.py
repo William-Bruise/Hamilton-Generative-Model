@@ -19,7 +19,7 @@ from data_utils import (
     auto_download_hyperspectral_pavia,
     maybe_download_dataset,
 )
-from hamiltonian_gen_model import HamiltonianGenerativeModel, compute_mmd_rbf
+from hamiltonian_gen_model import HamiltonianGenerativeModel, compute_mmd_rbf, sliced_wasserstein_distance
 
 
 class FlexibleEncoder(nn.Module):
@@ -89,13 +89,15 @@ def parse_resize(resize: str | None) -> Tuple[int, int] | None:
 
 
 def build_dataset(args: argparse.Namespace):
+    resize_to = parse_resize(args.resize) if args.preprocess == "resize" else None
+    crop_to = parse_resize(args.resize) if args.preprocess == "crop" else None
+
     if args.dataset_type == "cifar10":
         return CIFAR10TensorDataset(data_root=args.data_root, train=True)
 
     if args.dataset_type == "div2k":
         div2k_root = auto_download_div2k(args.data_root)
-        resize_to = parse_resize(args.resize)
-        return FolderImageDataset(root=str(div2k_root), resize_to=resize_to)
+        return FolderImageDataset(root=str(div2k_root), resize_to=resize_to, crop_to=crop_to)
 
     if args.dataset_type == "pavia_u":
         cube_path, cube_key = auto_download_hyperspectral_pavia(data_root=args.data_root)
@@ -118,8 +120,7 @@ def build_dataset(args: argparse.Namespace):
         )
 
     data_root = maybe_download_dataset(args.dataset_url, args.data_root, extract=True)
-    resize_to = parse_resize(args.resize)
-    return UniversalImageSpectralDataset(root=str(data_root), resize_to=resize_to)
+    return UniversalImageSpectralDataset(root=str(data_root), resize_to=resize_to, crop_to=crop_to)
 
 
 def train(args: argparse.Namespace) -> None:
@@ -163,10 +164,11 @@ def train(args: argparse.Namespace) -> None:
             qT, _ = flow.transport(q0, p0)
             sigma = None if args.mmd_sigma <= 0 else args.mmd_sigma
             mmd = compute_mmd_rbf(qT, z_target, sigma=sigma)
+            swd = sliced_wasserstein_distance(qT, z_target, num_projections=args.swd_proj)
 
             reg_h = sum((p * p).mean() for p in flow.h_net.parameters())
             reg_u = sum((p * p).mean() for p in flow.u_net.parameters())
-            flow_loss = mmd + args.lambda_h * reg_h + args.lambda_u * reg_u
+            flow_loss = mmd + args.lambda_swd * swd + args.lambda_h * reg_h + args.lambda_u * reg_u
 
             opt_flow.zero_grad()
             flow_loss.backward()
@@ -208,6 +210,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset-url", type=str, default=None, help="Used when dataset-type=generic")
     parser.add_argument("--data-root", type=str, default="./data")
     parser.add_argument("--resize", type=str, default="256x256", help="Optional fixed size: HxW")
+    parser.add_argument("--preprocess", type=str, default="resize", choices=["resize", "crop"])
 
     # Hyperspectral patch extraction
     parser.add_argument("--hyper-patch", type=int, default=64)
@@ -227,6 +230,8 @@ if __name__ == "__main__":
     parser.add_argument("--lr-ae", type=float, default=1e-3)
     parser.add_argument("--lr-flow", type=float, default=2e-4)
     parser.add_argument("--mmd-sigma", type=float, default=0.0, help="<=0 uses median-bandwidth heuristic")
+    parser.add_argument("--lambda-swd", type=float, default=0.5)
+    parser.add_argument("--swd-proj", type=int, default=128)
     parser.add_argument("--lambda-h", type=float, default=1e-6)
     parser.add_argument("--lambda-u", type=float, default=1e-6)
     parser.add_argument("--out", type=str, default="checkpoints/universal_hamiltonian.pt")

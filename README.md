@@ -103,3 +103,24 @@ LOG_DIR=/path/to/your_logs bash scripts/train_hyperspectral_hyspecnet11k_3d.sh
 
 2. **生成时报错 `does not require grad`**  
    哈密顿动力学在推理时也需要对状态求梯度。现在代码已在动力学模块内部强制启用状态梯度，训练和无条件生成都可正常运行。
+
+
+## 9. 256x256 的训练预处理策略（resize / crop）
+
+`train_universal_hamiltonian.py` 现在支持两种方式：
+- `--preprocess resize --resize 256x256`：先缩放到 256x256；
+- `--preprocess crop --resize 256x256`：从图像随机裁 256x256（如果原图太小会先上采样再裁剪）。
+
+例如：
+```bash
+PREPROCESS=resize bash scripts/train_color_div2k.sh
+PREPROCESS=crop   bash scripts/train_color_div2k.sh
+```
+
+## 10. 生成质量排查建议
+
+如果你看到 MMD 长时间卡在常数（比如 `0.0625`），当前代码会：
+- 使用自适应带宽 MMD（`--mmd-sigma 0`）；
+- 额外引入 Sliced Wasserstein 距离项（`--lambda-swd`）。
+
+这比单一 MMD 在高维特征上更稳定。
