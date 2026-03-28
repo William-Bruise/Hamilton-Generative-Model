@@ -157,7 +157,13 @@ class HyperHamiltonianGenerator3D(nn.Module):
         return qT[:, 0]
 
 
-def projection_mmd(x: torch.Tensor, y: torch.Tensor, proj_dim: int = 512, sigma: float = 1.0) -> torch.Tensor:
+def projection_mmd(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    proj_dim: int = 512,
+    sigma: float | None = None,
+    unbiased: bool = True,
+) -> torch.Tensor:
     # x,y: [B,C,H,W]
     xf = x.flatten(1)
     yf = y.flatten(1)
@@ -170,9 +176,31 @@ def projection_mmd(x: torch.Tensor, y: torch.Tensor, proj_dim: int = 512, sigma:
     def pdist2(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
         a2 = (a * a).sum(1, keepdim=True)
         b2 = (b * b).sum(1, keepdim=True).T
-        return a2 + b2 - 2 * (a @ b.T)
+        return (a2 + b2 - 2 * (a @ b.T)).clamp_min(0.0)
 
-    k_xx = torch.exp(-pdist2(xp, xp) / (2 * sigma * sigma)).mean()
-    k_yy = torch.exp(-pdist2(yp, yp) / (2 * sigma * sigma)).mean()
-    k_xy = torch.exp(-pdist2(xp, yp) / (2 * sigma * sigma)).mean()
+    d_xx = pdist2(xp, xp)
+    d_yy = pdist2(yp, yp)
+    d_xy = pdist2(xp, yp)
+
+    if sigma is None:
+        with torch.no_grad():
+            mix = torch.cat([d_xx.flatten(), d_yy.flatten(), d_xy.flatten()])
+            mix = mix[mix > 0]
+            if mix.numel() == 0:
+                sigma = 1.0
+            else:
+                sigma = torch.sqrt(torch.median(mix)).item()
+                sigma = max(sigma, 1e-4)
+
+    def mean_k(dmat: torch.Tensor, drop_diag: bool) -> torch.Tensor:
+        k = torch.exp(-dmat / (2 * float(sigma) * float(sigma)))
+        if drop_diag:
+            n = k.shape[0]
+            k = k - torch.diag(torch.diag(k))
+            return k.sum() / max(n * (n - 1), 1)
+        return k.mean()
+
+    k_xx = mean_k(d_xx, drop_diag=unbiased)
+    k_yy = mean_k(d_yy, drop_diag=unbiased)
+    k_xy = mean_k(d_xy, drop_diag=False)
     return k_xx + k_yy - 2 * k_xy

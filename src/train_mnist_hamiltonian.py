@@ -90,7 +90,8 @@ def train(args: argparse.Namespace) -> None:
             q0, p0 = model.sample_prior(n=x.size(0), device=device)
             qT, _ = model.transport(q0, p0)
 
-            mmd = compute_mmd_rbf(qT, z_target, sigma=args.mmd_sigma)
+            sigma = None if args.mmd_sigma <= 0 else args.mmd_sigma
+            mmd = compute_mmd_rbf(qT, z_target, sigma=sigma)
 
             h_reg = 0.0
             for p in model.h_net.parameters():
@@ -138,7 +139,7 @@ if __name__ == "__main__":
     parser.add_argument("--steps", type=int, default=32)
     parser.add_argument("--lr-ae", type=float, default=1e-3)
     parser.add_argument("--lr-flow", type=float, default=2e-4)
-    parser.add_argument("--mmd-sigma", type=float, default=1.0)
+    parser.add_argument("--mmd-sigma", type=float, default=0.0, help="<=0 uses median-bandwidth heuristic")
     parser.add_argument("--lambda-h", type=float, default=1e-6)
     parser.add_argument("--lambda-u", type=float, default=1e-6)
     parser.add_argument("--out", type=str, default="hamiltonian_mnist.pt")

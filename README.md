@@ -65,3 +65,9 @@ bash scripts/generate_hyper_anyshape_512x512x31.sh
 ```bash
 pip install torch torchvision pillow scipy
 ```
+
+
+## 6. 训练日志里 MMD 卡在常数怎么办？
+
+如果你看到类似 `mmd=0.0625` 长时间不变，这通常是 RBF 带宽不合适导致核退化。
+当前代码默认 `--mmd-sigma 0`，会自动启用 median-bandwidth heuristic（自适应带宽）并使用无偏估计，避免批大小相关的常数下限。

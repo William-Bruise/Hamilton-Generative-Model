@@ -128,7 +128,8 @@ def train(args: argparse.Namespace) -> None:
             qT, _ = model.transport(q0, p0)
             pred = qT[:, 0]
 
-            mmd = projection_mmd(pred, x, proj_dim=args.proj_dim, sigma=args.mmd_sigma)
+            sigma = None if args.mmd_sigma <= 0 else args.mmd_sigma
+            mmd = projection_mmd(pred, x, proj_dim=args.proj_dim, sigma=sigma)
             reg = sum((p * p).mean() for p in model.parameters())
             loss = mmd + args.weight_decay_reg * reg
 
@@ -168,7 +169,7 @@ if __name__ == "__main__":
     parser.add_argument("--steps", type=int, default=16)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--proj-dim", type=int, default=512)
-    parser.add_argument("--mmd-sigma", type=float, default=1.0)
+    parser.add_argument("--mmd-sigma", type=float, default=0.0, help="<=0 uses median-bandwidth heuristic")
     parser.add_argument("--weight-decay-reg", type=float, default=1e-8)
     parser.add_argument("--out", type=str, default="checkpoints/hyspecnet3d_hamiltonian.pt")
     train(parser.parse_args())
