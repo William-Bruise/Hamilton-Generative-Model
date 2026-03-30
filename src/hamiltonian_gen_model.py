@@ -152,11 +152,11 @@ class SymplecticEulerIntegrator(nn.Module):
 
 
 class HamiltonianGenerativeModel(nn.Module):
-    def __init__(self, dim: int, width: int = 512, depth: int = 6, steps: int = 32):
+    def __init__(self, dim: int, width: int = 512, depth: int = 6, steps: int = 32, use_control: bool = True):
         super().__init__()
         self.dim = dim
         self.h_net = HamiltonianNet(dim=dim, width=width, depth=depth)
-        self.u_net = ControlNet(dim=dim, width=width, depth=depth)
+        self.u_net = ControlNet(dim=dim, width=width, depth=depth) if use_control else None
         self.dynamics = HamiltonianDynamics(self.h_net, self.u_net)
         self.integrator = SymplecticEulerIntegrator(self.dynamics, steps=steps)
 

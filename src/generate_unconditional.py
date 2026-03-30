@@ -65,7 +65,8 @@ def main(args: argparse.Namespace) -> None:
     depth = int(cfg.get("depth", args.depth))
     steps = int(cfg.get("steps", args.steps))
 
-    flow = HamiltonianGenerativeModel(dim=latent_dim, width=width, depth=depth, steps=steps).to(device)
+    has_u = any(k.startswith("u_net.") for k in ckpt["flow"].keys())
+    flow = HamiltonianGenerativeModel(dim=latent_dim, width=width, depth=depth, steps=steps, use_control=has_u).to(device)
     decoder = FlexibleDecoder(out_channels=channels, latent_dim=latent_dim, base=base_channels).to(device)
 
     flow.load_state_dict(ckpt["flow"])

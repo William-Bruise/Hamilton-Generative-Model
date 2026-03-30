@@ -129,3 +129,30 @@ PREPROCESS=crop   bash scripts/train_color_div2k.sh
 ## 附录：方程 ↔ 代码类 ↔ 训练日志指标 一页图
 
 见：`docs/equation_code_metrics_diagram.md`
+
+
+## 11. 纯哈密顿版本（不引入控制项/感知/GAN）
+
+如果你要严格的“纯哈密顿”训练（`u=0`，只学习哈密顿函数 `H`），使用：
+
+```bash
+bash scripts/train_color_div2k_pure_hamiltonian.sh
+```
+
+对应脚本：`src/train_universal_pure_hamiltonian.py`，核心目标：
+- `recon`（仅用于构建 latent 空间）
+- `mmd + lambda_h * ||theta_H||^2`
+
+不包含：
+- 控制项 `u(q,p,t)`
+- 感知损失 / 对抗损失
+- SWD 项
+
+### 和主流生成模型的区别（简要）
+
+- Diffusion/Score 模型：依赖噪声预测与逐步去噪，不显式使用辛结构。
+- GAN：对抗博弈得到高视觉质量，但理论稳定性依赖训练技巧。
+- 本纯哈密顿版本：
+  - 生成路径由哈密顿方程给出（可解释动力学）
+  - 数值积分采用辛方法（结构保持）
+  - 目标以分布匹配（MMD）与哈密顿参数正则为主
